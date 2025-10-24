@@ -67,7 +67,7 @@ class casdoor_admin
                                     href="https://github.com/casbin/casdoor" target="_blank">GitHub</a>)
                         </li>
                         <li>Create a new application and add following uri to callback URLs:
-                            <strong class="code"><?= site_url('?auth=casdoor'); ?></strong> and <strong class="code"><?= site_url(); ?></strong></li>
+                            <strong class="code"><?= site_url('?auth=casdoor'); ?></strong></li>
                         <li>Copy the Client ID and Client Secret in Step 2 below.</li>
                     </ol>
                 </div>
@@ -144,20 +144,15 @@ class casdoor_admin
                                 </td>
                             </tr>
 
-                            <!-- New: Force SSL verification option -->
                             <tr valign="top">
-                                <th scope="row">Force SSL verification</th>
+                                <th scope="row">Support for WooCommerce: Redirect /my-account/edit-account/ to Casdoor</th>
                                 <td>
                                     <label>
                                         <input type="checkbox"
-                                               name="<?= self::OPTIONS_NAME ?>[force_ssl_verify]"
-                                               value="1" <?= casdoor_get_option('force_ssl_verify') == 1 ? 'checked="checked"' : ''; ?> />
-                                        Verify TLS certificates when contacting Casdoor (recommended on production).
+                                            name="<?= self::OPTIONS_NAME ?>[woo_edit_account_redirect]"
+                                            value="1" <?= absint(casdoor_get_option('woo_edit_account_redirect')) === 1 ? 'checked="checked"' : ''; ?> />
+                                        Enable rewriting links and redirecting direct visits to Casdoor’s /account. Links open in a new tab.
                                     </label>
-                                    <p class="description">
-                                        When unchecked, the plugin will not verify TLS certificates (sslverify =&gt; false)
-                                        for token exchanges, matching previous behavior.
-                                    </p>
                                 </td>
                             </tr>
                         </table>
@@ -184,11 +179,10 @@ class casdoor_admin
      */
     public function validate(array $input): array
     {
-        $input['redirect_to_dashboard'] = isset($input['redirect_to_dashboard']) ? 1 : 0;
-        $input['login_only']            = isset($input['login_only']) ? 1 : 0;
-        $input['organization']          = isset($input['organization']) ? $input['organization'] : 'built-in';
-        // New: ensure force_ssl_verify is a checkbox (0/1)
-        $input['force_ssl_verify']      = isset($input['force_ssl_verify']) ? 1 : 0;
+        $input['redirect_to_dashboard']       = isset($input['redirect_to_dashboard']) ? $input['redirect_to_dashboard'] : 0;
+        $input['login_only']                  = isset($input['login_only']) ? $input['login_only'] : 0;
+        $input['organization']                = isset($input['organization']) ? $input['organization'] : 'built-in';
+        $input['woo_edit_account_redirect']   = isset($input['woo_edit_account_redirect']) ? 1 : 0;
 
         return $input;
     }
