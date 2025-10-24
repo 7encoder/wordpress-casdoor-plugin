@@ -1382,8 +1382,3 @@ table td input[type="text"] {
     border: 1px solid white bottom;
     color: white;
 }
-
-/* Casdoor settings page: keep admin footer static so it doesn't overlap content */
-body.settings_page_casdoor_settings #wpfooter {
-    position: static !important;
-}
