@@ -85,7 +85,10 @@ class Rewrites
           }
 
           var pathRules = [
-            { re: /^\/my-account\/edit-account\/?$/i, casdoorPath: '/account' }
+            // Existing Woo path
+            { re: /^\/my-account\/edit-account\/?$/i, casdoorPath: '/account' },
+            // New: also cover /account/edit-account
+            { re: /^\/account\/edit-account\/?$/i, casdoorPath: '/account' }
           ];
 
           function normalizeUrl(href) {
@@ -204,6 +207,23 @@ class Rewrites
 
     public function template_redirect_intercept(): void
     {
+        // 0) If the Woo feature is enabled, server-side fallback:
+        // Redirect direct visits to /my-account/edit-account and /account/edit-account
+        // to {Backend}/account with 301.
+        if ($this->wc_feature_enabled()) {
+            $casdoor = $this->wc_get_casdoor_base();
+            if ($casdoor !== '') {
+                $req_uri = $_SERVER['REQUEST_URI'] ?? '';
+                $path    = parse_url($req_uri, PHP_URL_PATH) ?: '/';
+                $path    = '/' . ltrim($path, '/');
+
+                if (preg_match('#^/(?:my-account|account)/edit-account/?$#i', $path)) {
+                    wp_redirect($casdoor . '/account', 301);
+                    exit;
+                }
+            }
+        }
+
         // 1) Protect WooCommerce account pages: redirect unauthenticated users to login,
         // preserving the exact sub-page and query string.
         $req_uri = $_SERVER['REQUEST_URI'] ?? '';
