@@ -13,6 +13,7 @@ function defaults()
         'login_only'            => 0,
         'auto_sso'              => 0, // If enabled (1), automatically attempt Single Sign-On (SSO) for users on login page load.
         'active'                => 0, // If enabled (1), activates the Casdoor authentication plugin; if disabled (0), plugin is inactive.
+        'woo_edit_account_redirect' => 0, // If enabled (1), rewrite/redirect WooCommerce /my-account/edit-account/ to Casdoor.
     ];
 }
 
