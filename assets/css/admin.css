@@ -1382,3 +1382,7 @@ table td input[type="text"] {
     border: 1px solid white bottom;
     color: white;
 }
+/* Fix Wordpress version message */
+#wpfooter {
+    position: static !important;
+}
