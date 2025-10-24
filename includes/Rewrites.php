@@ -32,195 +32,35 @@ class Rewrites
         $wp_rewrite->flush_rules();
     }
 
-    /**
-     * Whether the WooCommerce edit-account redirect feature is enabled.
-     */
-    public function wc_feature_enabled(): bool
-    {
-        return function_exists('casdoor_get_option') && absint(casdoor_get_option('woo_edit_account_redirect')) === 1;
-    }
-
-    /**
-     * Get Casdoor Backend base URL from the Casdoor plugin settings.
-     *
-     * @return string e.g., https://sso.example.com (no trailing slash) or empty string if not set
-     */
-    public function wc_get_casdoor_base(): string
-    {
-        if (!function_exists('casdoor_get_option')) {
-            return '';
-        }
-        $backend = (string) casdoor_get_option('backend');
-        $backend = trim($backend);
-        return $backend === '' ? '' : rtrim($backend, '/');
-    }
-
-    /**
-     * Inject inline JS in footer to rewrite links and add target="_blank".
-     */
-    public function wc_footer_script()
-    {
-        if (!$this->wc_feature_enabled()) {
-            return;
-        }
-
-        $casdoor_base = $this->wc_get_casdoor_base();
-
-        // Pass data into JS safely
-        $data = [
-            'base'   => $casdoor_base,
-            'origin' => home_url('/'),
-        ];
-        ?>
-        <script>
-        (function() {
-          var DATA = <?php echo wp_json_encode($data, JSON_HEX_TAG|JSON_HEX_APOS|JSON_HEX_AMP|JSON_HEX_QUOT); ?>;
-          var CASDOOR_BASE = (DATA.base || '').replace(/\/+$/, ''); // no trailing slash
-          var SITE_ORIGIN;
-          try {
-            SITE_ORIGIN = new URL(DATA.origin).origin;
-          } catch (e) {
-            SITE_ORIGIN = window.location.origin;
-          }
-
-          var pathRules = [
-            { re: /^\/my-account\/edit-account\/?$/i, casdoorPath: '/account' }
-          ];
-
-          function normalizeUrl(href) {
-            try { return new URL(href, window.location.origin); }
-            catch (e) { return null; }
-          }
-
-          function maybeRewriteAndTarget(a) {
-            if (!a || !a.getAttribute) return;
-
-            var originalHref = a.getAttribute('href');
-            if (!originalHref) return;
-
-            var url = normalizeUrl(originalHref);
-            if (!url) return;
-
-            // Only consider links pointing to this site
-            if (url.origin !== SITE_ORIGIN) return;
-
-            // Normalize trailing slash style to match rules
-            var path = url.pathname;
-            if (!/\/$/.test(path)) {
-              // Keep both variants by testing both; normalize to have trailing slash for comparison
-              path = path + '/';
-            }
-
-            for (var i = 0; i < pathRules.length; i++) {
-              var rule = pathRules[i];
-              if (rule.re.test(path)) {
-                // Always open in new tab
-                a.setAttribute('target', '_blank');
-
-                // Security best practice with _blank
-                var rel = (a.getAttribute('rel') || '');
-                var parts = rel.toLowerCase().split(/\s+/).filter(Boolean);
-                var set = {};
-                parts.forEach(function(p){ set[p] = true; });
-                set['noopener'] = true;
-                set['noreferrer'] = true;
-                a.setAttribute('rel', Object.keys(set).join(' '));
-
-                // If Casdoor base configured, rewrite href
-                if (CASDOOR_BASE) {
-                  var newHref = CASDOOR_BASE + rule.casdoorPath;
-                  if (a.href !== newHref) {
-                    a.setAttribute('href', newHref);
-                  }
-                }
-                return;
-              }
-            }
-          }
-
-          function processAll(root) {
-            var scope = (root && root.querySelectorAll) ? root : document;
-            var links = scope.querySelectorAll('a[href]');
-            for (var i = 0; i < links.length; i++) {
-              maybeRewriteAndTarget(links[i]);
-            }
-          }
-
-          // Initial run
-          if (document.readyState === 'loading') {
-            document.addEventListener('DOMContentLoaded', function() { processAll(document); });
-          } else {
-            processAll(document);
-          }
-
-          // Observe for dynamically injected links (menus, AJAX content, etc.)
-          try {
-            var mo = new MutationObserver(function(mutations) {
-              for (var i = 0; i < mutations.length; i++) {
-                var m = mutations[i];
-                if (m.type === 'childList') {
-                  for (var j = 0; j < m.addedNodes.length; j++) {
-                    var node = m.addedNodes[j];
-                    if (node && node.nodeType === 1) {
-                      if (node.tagName === 'A') {
-                        maybeRewriteAndTarget(node);
-                      } else if (node.querySelectorAll) {
-                        processAll(node);
-                      }
-                    }
-                  }
-                } else if (m.type === 'attributes' && m.target && m.target.tagName === 'A' && m.attributeName === 'href') {
-                  maybeRewriteAndTarget(m.target);
-                }
-              }
-            });
-            mo.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ['href'] });
-          } catch (e) {
-            // MutationObserver not available or failed; initial processing still applied
-          }
-        })();
-        </script>
-        <?php
-    }
-
-    /**
-     * Permit safe redirects to the SSO host (for any code that uses wp_safe_redirect).
-     */
-    public function allowed_redirect_hosts($hosts)
-    {
-        if (!$this->wc_feature_enabled()) {
-            return $hosts;
-        }
-        $casdoor = $this->wc_get_casdoor_base();
-        if ($casdoor !== '') {
-            $host = parse_url($casdoor, PHP_URL_HOST);
-            if ($host && !in_array($host, $hosts, true)) {
-                $hosts[] = $host;
-            }
-        }
-        return $hosts;
-    }
-
     public function template_redirect_intercept(): void
     {
+        // Redirect unauthenticated users from /my-account/ (and sub-pages)
+        // to the WordPress login page, returning them to the original sub-page upon login.
+        $req_uri = $_SERVER['REQUEST_URI'] ?? '';
+        if (!is_user_logged_in() && $req_uri !== '') {
+            $path = parse_url($req_uri, PHP_URL_PATH) ?: '/';
+            // Normalize path to begin with a single leading slash
+            $path = '/' . ltrim($path, '/');
+
+            // Match /my-account and any sub-page e.g., /my-account/edit-account, /my-account/orders, with or without trailing slash
+            if (preg_match('#^/my-account(?:/|$)#i', $path)) {
+                // Preserve query string if present
+                $qs = $_SERVER['QUERY_STRING'] ?? '';
+                $request_uri = $path . ($qs !== '' ? '?' . $qs : '');
+
+                // Build a same-origin absolute URL to return to after login
+                $return_to = home_url($request_uri);
+
+                // Use wp_login_url to generate login URL carrying redirect_to, and wp_safe_redirect for security
+                wp_safe_redirect(wp_login_url($return_to));
+                exit;
+            }
+        }
+
+        // From here on, only run the rest of the Casdoor intercepts if the plugin is active
         $activated = absint(casdoor_get_option('active'));
         if (!$activated) {
             return;
-        }
-
-        // WooCommerce direct visit redirect fallback
-        if ($this->wc_feature_enabled()) {
-            $casdoor = $this->wc_get_casdoor_base();
-            if ($casdoor !== '') {
-                $req_uri = $_SERVER['REQUEST_URI'] ?? '';
-                $path    = parse_url($req_uri, PHP_URL_PATH) ?: '/';
-                $path    = '/' . ltrim($path, '/');
-
-                if (preg_match('#^/my-account/edit-account/?$#i', $path)) {
-                    wp_redirect($casdoor . '/account', 301);
-                    exit;
-                }
-            }
         }
 
         global $wp_query;
@@ -263,7 +103,3 @@ add_filter('rewrite_rules_array', [$rewrites, 'create_rewrite_rules']);
 add_filter('query_vars', [$rewrites, 'add_query_vars']);
 add_filter('wp_loaded', [$rewrites, 'flush_rewrite_rules']);
 add_action('template_redirect', [$rewrites, 'template_redirect_intercept']);
-
-// Hook footer JS and safe-redirect host whitelist without adding a new file
-add_action('wp_footer', [$rewrites, 'wc_footer_script'], 99);
-add_filter('allowed_redirect_hosts', [$rewrites, 'allowed_redirect_hosts']);
